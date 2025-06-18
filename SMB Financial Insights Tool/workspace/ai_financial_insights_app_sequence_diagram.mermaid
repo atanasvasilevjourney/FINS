@@ -1,0 +1,156 @@
+sequenceDiagram
+    actor User
+    participant FE as Streamlit Frontend
+    participant Auth as AuthenticationService
+    participant SB as Supabase
+    participant API as FastAPI Backend
+    participant DP as DataProcessor
+    participant DB as DatabaseService
+    participant DG as DashboardGenerator
+    participant VS as VisualizationService
+    participant AI as AIInsightService
+    participant LLM as OpenAI/LLM
+    participant BS as BillingService
+    participant Stripe as Stripe API
+    
+    %% User Authentication Flow
+    User->>FE: Login with credentials
+    FE->>Auth: login(email, password)
+    Auth->>SB: supabaseClient.auth.signIn()
+    SB-->>Auth: Return JWT token
+    Auth-->>FE: Return token and user data
+    FE-->>User: Display dashboard
+    
+    %% File Upload Flow
+    User->>FE: Upload financial data (.xlsx/.csv)
+    FE->>API: POST /upload with file data
+    API->>Auth: validate_token(token)
+    Auth->>SB: verifyJWT(token)
+    SB-->>Auth: Return user_id if valid
+    Auth-->>API: Return user_id
+    API->>DP: process_file(file)
+    DP->>DP: clean_data(df)
+    DP->>DP: standardize_columns(df)
+    DP->>DP: identify_data_types(df)
+    DP-->>API: Return processed DataFrame
+    API->>DB: store_dataframe(user_id, "financials", df)
+    DB->>SB: Insert data into user's storage
+    SB-->>DB: Confirm storage
+    DB-->>API: Confirm storage
+    API-->>FE: Return success and metadata
+    FE-->>User: Show successful upload message
+    
+    %% Dashboard Generation Flow
+    User->>FE: Request financial dashboard
+    FE->>API: GET /dashboard
+    API->>Auth: validate_token(token)
+    Auth-->>API: Return user_id
+    API->>DB: get_dataframe(user_id, "financials")
+    DB->>SB: Query user's data
+    SB-->>DB: Return stored DataFrame
+    DB-->>API: Return DataFrame
+    API->>DG: generate_overview_dashboard(df)
+    DG->>VS: create_line_chart(revenue_data)
+    VS-->>DG: Return revenue chart
+    DG->>VS: create_pie_chart(expense_data)
+    VS-->>DG: Return expense chart
+    DG->>VS: create_bar_chart(cash_flow_data)
+    VS-->>DG: Return cash flow chart
+    DG-->>API: Return dashboard components
+    API-->>FE: Return dashboard data
+    FE-->>User: Display financial dashboard
+    
+    %% Text to SQL Query Flow
+    User->>FE: Enter natural language query
+    FE->>API: POST /query with question
+    API->>Auth: validate_token(token)
+    Auth-->>API: Return user_id
+    API->>BS: check_query_limit(user_id)
+    BS->>SB: Get user subscription data
+    SB-->>BS: Return subscription tier
+    BS-->>API: Query allowed/Query count remaining
+    opt Free tier limit reached
+        API->>BS: increment_query_count(user_id)
+        BS->>SB: Update query count
+        API-->>FE: Return upgrade required message
+        FE-->>User: Display upgrade prompt
+    end
+    API->>DB: get_dataframe(user_id, "financials")
+    DB-->>API: Return DataFrame
+    API->>AI: text_to_sql(question, schema)
+    AI->>LLM: Generate SQL from question
+    LLM-->>AI: Return SQL query
+    AI-->>API: Return SQL query
+    API->>DB: execute_sql(user_id, sql_query)
+    DB-->>API: Return query results
+    API->>VS: create_appropriate_chart(results)
+    VS-->>API: Return visualization
+    API-->>FE: Return results and visualization
+    FE-->>User: Display query results and chart
+    
+    %% AI Insights Flow
+    User->>FE: Request AI insights
+    FE->>API: GET /insights
+    API->>Auth: validate_token(token)
+    Auth-->>API: Return user_id
+    API->>BS: check_feature_access(user_id, "ai_insights")
+    BS->>SB: Get user subscription data
+    SB-->>BS: Return subscription tier
+    opt Feature not available in tier
+        BS-->>API: Feature not available
+        API-->>FE: Return upgrade required message
+        FE-->>User: Display upgrade prompt
+    end
+    BS-->>API: Feature available
+    API->>DB: get_dataframe(user_id, "financials")
+    DB-->>API: Return DataFrame
+    API->>AI: generate_insights(df)
+    AI->>AI: detect_anomalies(df)
+    AI->>LLM: Generate recommendations from data
+    LLM-->>AI: Return recommendations
+    AI-->>API: Return insights and recommendations
+    API-->>FE: Return insights data
+    FE-->>User: Display AI insights
+    
+    %% Subscription Upgrade Flow
+    User->>FE: Select upgrade to Pro subscription
+    FE->>API: POST /create-checkout-session
+    API->>Auth: validate_token(token)
+    Auth-->>API: Return user_id and email
+    API->>BS: create_checkout_session(user_id, email, "pro")
+    BS->>Stripe: Create checkout session
+    Stripe-->>BS: Return session ID and URL
+    BS-->>API: Return checkout URL
+    API-->>FE: Return checkout URL
+    FE-->>User: Redirect to Stripe checkout
+    User->>Stripe: Complete payment
+    Stripe->>API: POST /webhook (event: checkout.session.completed)
+    API->>BS: process_subscription_webhook(event)
+    BS->>SB: Update user.subscription_tier="pro"
+    BS->>SB: Update subscription_start and subscription_end
+    SB-->>BS: Confirm update
+    BS-->>API: Confirm subscription updated
+    API-->>Stripe: Return 200 OK
+    
+    %% Forecasting (Business tier feature) Flow
+    User->>FE: Request forecasting
+    FE->>API: GET /forecast
+    API->>Auth: validate_token(token)
+    Auth-->>API: Return user_id
+    API->>BS: check_feature_access(user_id, "forecasting")
+    BS->>SB: Get user subscription data
+    SB-->>BS: Return subscription tier
+    opt Not Business tier
+        BS-->>API: Feature not available
+        API-->>FE: Return upgrade required message
+        FE-->>User: Display upgrade prompt
+    end
+    BS-->>API: Feature available
+    API->>DB: get_dataframe(user_id, "financials")
+    DB-->>API: Return DataFrame
+    API->>ForecastingService: generate_revenue_forecast(df, periods=12)
+    ForecastingService-->>API: Return forecast data
+    API->>VS: create_line_chart(forecast_data)
+    VS-->>API: Return forecast visualization
+    API-->>FE: Return forecast data and visualization
+    FE-->>User: Display forecasting results

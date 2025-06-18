@@ -1,0 +1,156 @@
+classDiagram
+    class User {
+        +uuid id
+        +string email
+        +string password_hash
+        +string first_name
+        +string last_name
+        +SubscriptionTier subscription_tier
+        +date subscription_start
+        +date subscription_end
+        +__init__(email, password, first_name, last_name)
+        +upgrade_subscription(tier)
+        +downgrade_subscription()
+        +reset_password(new_password)
+    }
+    
+    class SubscriptionTier {
+        <<enumeration>>
+        FREE
+        PRO
+        BUSINESS
+    }
+    
+    class FinancialFile {
+        +uuid id
+        +uuid user_id
+        +string filename
+        +string file_type
+        +datetime upload_date
+        +string storage_path
+        +__init__(user_id, filename, file_type)
+        +delete()
+        +get_data()
+    }
+    
+    class DataProcessor {
+        +process_file(file) DataFrame
+        +clean_data(df) DataFrame
+        +standardize_columns(df) DataFrame
+        +identify_data_types(df) Dict
+        +detect_date_columns(df) List
+        +detect_numeric_columns(df) List
+    }
+    
+    class QuickBooksConnector {
+        +string client_id
+        +string client_secret
+        +connect_account(user_id)
+        +fetch_data(user_id, report_type) DataFrame
+        +refresh_token(user_id)
+        +disconnect_account(user_id)
+    }
+    
+    class DashboardGenerator {
+        +generate_overview_dashboard(df) Dict
+        +generate_revenue_dashboard(df) Dict
+        +generate_expense_dashboard(df) Dict
+        +generate_cash_flow_dashboard(df) Dict
+        +generate_profitability_dashboard(df) Dict
+    }
+    
+    class VisualizationService {
+        +create_line_chart(df, x_col, y_col, title) Plot
+        +create_bar_chart(df, x_col, y_col, title) Plot
+        +create_pie_chart(df, values_col, labels_col, title) Plot
+        +create_time_series(df, date_col, value_col, title) Plot
+        +text_to_visualization(text_prompt, df) Plot
+    }
+    
+    class AIInsightService {
+        +generate_insights(df) List
+        +detect_anomalies(df) List
+        +answer_question(question, df) String
+        +text_to_sql(question, table_schema) String
+        +generate_recommendations(df) List
+    }
+    
+    class DatabaseService {
+        +store_dataframe(user_id, df_name, df)
+        +get_dataframe(user_id, df_name) DataFrame
+        +list_dataframes(user_id) List
+        +delete_dataframe(user_id, df_name)
+        +execute_sql(user_id, sql_query) DataFrame
+    }
+    
+    class AuthenticationService {
+        +register_user(email, password, first_name, last_name) User
+        +login(email, password) Token
+        +validate_token(token) User
+        +refresh_token(refresh_token) Token
+        +logout(token)
+        +reset_password(email)
+    }
+    
+    class BillingService {
+        +create_subscription(user_id, tier)
+        +update_subscription(user_id, tier)
+        +cancel_subscription(user_id)
+        +process_payment(user_id, amount)
+        +generate_invoice(user_id)
+        +get_subscription_status(user_id) Dict
+        +create_customer(user_id, email)
+    }
+    
+    class QueryHistory {
+        +uuid id
+        +uuid user_id
+        +string query_text
+        +datetime timestamp
+        +string result_summary
+        +boolean success
+        +__init__(user_id, query_text)
+        +save_result(result_summary, success)
+    }
+    
+    class ForecastingService {
+        +generate_revenue_forecast(df, periods) DataFrame
+        +generate_expense_forecast(df, periods) DataFrame
+        +generate_cash_flow_forecast(df, periods) DataFrame
+        +create_scenario(df, scenario_params) DataFrame
+        +compare_scenarios(scenario_list) Dict
+    }
+    
+    class APIService {
+        +authenticate(api_key) User
+        +get_financial_data(user_id, params) Response
+        +run_query(user_id, query) Response
+        +get_insights(user_id, params) Response
+        +generate_report(user_id, params) Response
+    }
+    
+    class AppConfig {
+        +string env
+        +Dict api_keys
+        +Dict service_urls
+        +Dict rate_limits
+        +load_config(env)
+        +get_api_key(service_name)
+        +get_service_url(service_name)
+        +get_rate_limit(feature_name)
+    }
+
+    User "1" -- "*" FinancialFile : uploads
+    User "1" -- "1" SubscriptionTier : has
+    User "1" -- "*" QueryHistory : creates
+    AuthenticationService -- User : manages
+    BillingService -- User : bills
+    DataProcessor -- FinancialFile : processes
+    QuickBooksConnector -- DataProcessor : provides data to
+    DashboardGenerator -- DataProcessor : uses
+    VisualizationService -- DashboardGenerator : creates visuals for
+    AIInsightService -- DatabaseService : queries
+    DatabaseService -- FinancialFile : stores processed
+    APIService -- DatabaseService : accesses
+    APIService -- User : authenticates
+    ForecastingService -- DatabaseService : uses data from
