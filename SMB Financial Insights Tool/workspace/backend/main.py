@@ -131,6 +131,11 @@ def get_user(email: str):
     if user_file.exists():
         with open(user_file, 'r') as f:
             user_data = json.load(f)
+            # Ensure datetime strings are converted back to datetime objects if needed by Pydantic
+            if "subscription_start" in user_data and user_data["subscription_start"]:
+                user_data["subscription_start"] = datetime.fromisoformat(user_data["subscription_start"])
+            if "subscription_end" in user_data and user_data["subscription_end"]:
+                user_data["subscription_end"] = datetime.fromisoformat(user_data["subscription_end"])
             return User(**user_data)
     return None
 
@@ -198,6 +203,12 @@ async def register(user_data: UserCreate):
     user_file = user_data_dir / f"{user.email}.json"
     with open(user_file, 'w') as f:
         user_dict = user.dict()
+        # Convert datetime objects to ISO format strings before JSON serialization
+        if user_dict.get("subscription_start"):
+            user_dict["subscription_start"] = user_dict["subscription_start"].isoformat()
+        if user_dict.get("subscription_end"):
+            user_dict["subscription_end"] = user_dict["subscription_end"].isoformat()
+        
         json.dump(user_dict, f)
     
     # Create user data directory
@@ -479,6 +490,11 @@ async def generate_insights(file_id: str, current_user: User = Depends(get_curre
         user_file = user_data_dir / f"{current_user.email}.json"
         with open(user_file, 'w') as f:
             user_dict = current_user.dict()
+            # Convert datetime objects to ISO format strings before JSON serialization
+            if user_dict.get("subscription_start"):
+                user_dict["subscription_start"] = user_dict["subscription_start"].isoformat()
+            if user_dict.get("subscription_end"):
+                user_dict["subscription_end"] = user_dict["subscription_end"].isoformat()
             json.dump(user_dict, f)
         
         return InsightResponse(
@@ -600,6 +616,11 @@ async def stripe_webhook(request: Dict[str, Any] = Body(...)):
                 user_file = user_data_dir / f"{user.email}.json"
                 with open(user_file, 'w') as f:
                     user_dict = user.dict()
+                    # Convert datetime objects to ISO format strings before JSON serialization
+                    if user_dict.get("subscription_start"):
+                        user_dict["subscription_start"] = user_dict["subscription_start"].isoformat()
+                    if user_dict.get("subscription_end"):
+                        user_dict["subscription_end"] = user_dict["subscription_end"].isoformat()
                     json.dump(user_dict, f)
                 
                 logger.info(f"User {user_id} subscription updated to {plan}")
