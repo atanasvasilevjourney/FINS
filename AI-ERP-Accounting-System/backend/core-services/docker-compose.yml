@@ -1,0 +1,221 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: fins_postgres
+    environment:
+      POSTGRES_DB: fins_erp
+      POSTGRES_USER: fins_user
+      POSTGRES_PASSWORD: fins_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - fins_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fins_user -d fins_erp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for caching and message queue
+  redis:
+    image: redis:7-alpine
+    container_name: fins_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - fins_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # RabbitMQ for message queuing
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: fins_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: fins_user
+      RABBITMQ_DEFAULT_PASS: fins_password
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - fins_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # General Ledger Service
+  general-ledger:
+    build:
+      context: ./general-ledger
+      dockerfile: Dockerfile
+    container_name: fins_general_ledger
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://fins_user:fins_password@rabbitmq:5672/
+      - SERVICE_NAME=general-ledger
+      - LOG_LEVEL=INFO
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - fins_network
+    volumes:
+      - ./general-ledger:/app
+      - /app/__pycache__
+    restart: unless-stopped
+
+  # Accounts Payable Service
+  accounts-payable:
+    build:
+      context: ./accounts-payable
+      dockerfile: Dockerfile
+    container_name: fins_accounts_payable
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://fins_user:fins_password@rabbitmq:5672/
+      - SERVICE_NAME=accounts-payable
+      - LOG_LEVEL=INFO
+    ports:
+      - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - fins_network
+    volumes:
+      - ./accounts-payable:/app
+      - /app/__pycache__
+      - invoice_uploads:/app/uploads
+    restart: unless-stopped
+
+  # Accounts Receivable Service
+  accounts-receivable:
+    build:
+      context: ./accounts-receivable
+      dockerfile: Dockerfile
+    container_name: fins_accounts_receivable
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://fins_user:fins_password@rabbitmq:5672/
+      - SERVICE_NAME=accounts-receivable
+      - LOG_LEVEL=INFO
+    ports:
+      - "8003:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - fins_network
+    volumes:
+      - ./accounts-receivable:/app
+      - /app/__pycache__
+    restart: unless-stopped
+
+  # API Gateway (Nginx)
+  api-gateway:
+    image: nginx:alpine
+    container_name: fins_api_gateway
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - general-ledger
+      - accounts-payable
+      - accounts-receivable
+    networks:
+      - fins_network
+    restart: unless-stopped
+
+  # Monitoring and Logging
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: fins_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - fins_network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fins_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - fins_network
+    restart: unless-stopped
+
+  # Database Migration Service
+  migrations:
+    build:
+      context: ./general-ledger
+      dockerfile: Dockerfile
+    container_name: fins_migrations
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fins_network
+    restart: "no"
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  prometheus_data:
+  grafana_data:
+  invoice_uploads:
+
+networks:
+  fins_network:
+    driver: bridge 

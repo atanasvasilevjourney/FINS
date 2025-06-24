@@ -1,0 +1,251 @@
+version: '3.8'
+
+services:
+  # Database Services
+  postgres:
+    image: postgres:15-alpine
+    container_name: fins-postgres
+    environment:
+      POSTGRES_DB: fins_erp
+      POSTGRES_USER: fins_user
+      POSTGRES_PASSWORD: fins_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/postgresql/init:/docker-entrypoint-initdb.d
+    networks:
+      - fins-network
+
+  mongodb:
+    image: mongo:7.0
+    container_name: fins-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: fins_admin
+      MONGO_INITDB_ROOT_PASSWORD: fins_password
+      MONGO_INITDB_DATABASE: fins_erp
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./database/mongodb/init:/docker-entrypoint-initdb.d
+    networks:
+      - fins-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: fins-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - fins-network
+
+  # Message Queue
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: fins-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: fins_user
+      RABBITMQ_DEFAULT_PASS: fins_password
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - fins-network
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./backend/api-gateway
+      dockerfile: Dockerfile
+    container_name: fins-api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+      - MONGODB_URL=mongodb://fins_admin:fins_password@mongodb:27017/fins_erp
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://fins_user:fins_password@rabbitmq:5672/
+    depends_on:
+      - postgres
+      - mongodb
+      - redis
+      - rabbitmq
+    networks:
+      - fins-network
+
+  # Authentication Service
+  auth-service:
+    build:
+      context: ./backend/auth-service
+      dockerfile: Dockerfile
+    container_name: fins-auth-service
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-change-in-production
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - fins-network
+
+  # General Ledger Service
+  gl-service:
+    build:
+      context: ./backend/core-services/general-ledger
+      dockerfile: Dockerfile
+    container_name: fins-gl-service
+    ports:
+      - "8002:8000"
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://fins_user:fins_password@rabbitmq:5672/
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    networks:
+      - fins-network
+
+  # Accounts Payable Service
+  ap-service:
+    build:
+      context: ./backend/core-services/accounts-payable
+      dockerfile: Dockerfile
+    container_name: fins-ap-service
+    ports:
+      - "8003:8000"
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://fins_user:fins_password@rabbitmq:5672/
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    networks:
+      - fins-network
+
+  # Accounts Receivable Service
+  ar-service:
+    build:
+      context: ./backend/core-services/accounts-receivable
+      dockerfile: Dockerfile
+    container_name: fins-ar-service
+    ports:
+      - "8004:8000"
+    environment:
+      - DATABASE_URL=postgresql://fins_user:fins_password@postgres:5432/fins_erp
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://fins_user:fins_password@rabbitmq:5672/
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    networks:
+      - fins-network
+
+  # AI Services
+  nlp-service:
+    build:
+      context: ./backend/ai-services/nlp-service
+      dockerfile: Dockerfile
+    container_name: fins-nlp-service
+    ports:
+      - "8005:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://fins_user:fins_password@rabbitmq:5672/
+    depends_on:
+      - redis
+      - rabbitmq
+    networks:
+      - fins-network
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: fins-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_AUTH_URL=http://localhost:8001
+    depends_on:
+      - api-gateway
+    networks:
+      - fins-network
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: fins-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - fins-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fins-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./infrastructure/monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - fins-network
+
+  # File Storage (MinIO)
+  minio:
+    image: minio/minio:latest
+    container_name: fins-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: fins_admin
+      MINIO_ROOT_PASSWORD: fins_password
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - fins-network
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+  rabbitmq_data:
+  prometheus_data:
+  grafana_data:
+  minio_data:
+
+networks:
+  fins-network:
+    driver: bridge 

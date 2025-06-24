@@ -1,9 +1,9 @@
 # ... existing code ...
 # from ai.agent import AIAgent  # Removed AI integration
-from accounting.core import AccountingEngine
-from security.encryption import AESEncryption
-from ui.dashboard import DashboardManager
-# ... existing code ...
+import sqlite3  # For database functionality
+from datetime import datetime
+from decimal import Decimal  # For precise financial calculations
+
 class ERPSystem:
     def __init__(self):
         self.accounting_engine = AccountingEngine()
